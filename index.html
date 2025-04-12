@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ESP32 LED 控制面板</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    button { margin: 5px; padding: 10px; font-size: 16px; }
+    #log {
+      margin-top: 20px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      border: 1px solid #ccc;
+      padding: 10px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <h2>ESP32 多色 LED 控制</h2>
+  <div>
+    <button onclick="controlLED('red', 'on')">紅燈 ON</button>
+    <button onclick="controlLED('red', 'off')">紅燈 OFF</button><br>
+    <button onclick="controlLED('green', 'on')">綠燈 ON</button>
+    <button onclick="controlLED('green', 'off')">綠燈 OFF</button><br>
+    <button onclick="controlLED('yellow', 'on')">黃燈 ON</button>
+    <button onclick="controlLED('yellow', 'off')">黃燈 OFF</button><br>
+    <button onclick="controlLED('orange', 'on')">橙燈 ON</button>
+    <button onclick="controlLED('orange', 'off')">橙燈 OFF</button>
+  </div>
+
+  <div id="log"><strong>📬 MQTT 訊息區</strong></div>
+
+  <script>
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+      clientId: 'web_' + Math.random().toString(16).substr(2, 8),
+      username: 'mqttx_ce657d5d',
+      password: ''
+    });
+
+    const topic = 'home/yard/ESP32';
+    const logDiv = document.getElementById('log');
+    const logs = [];
+
+    client.on('connect', () => {
+      addLog("✅ 已連接到 MQTT Broker");
+      client.subscribe(topic);
+    });
+
+    client.on('message', (topic, payload) => {
+      addLog("📥 收到: " + payload.toString());
+    });
+
+    function controlLED(color, action) {
+      const msg = JSON.stringify({ led: color, action: action });
+      client.publish(topic, msg, { qos: 1 });
+      addLog("🚀 發送: " + msg);
+    }
+
+    function addLog(text) {
+      logs.unshift(text); // 插入最前面
+      if (logs.length > 10) logs.pop(); // 保留 10 筆
+      logDiv.innerHTML = "<strong>📬 MQTT 訊息區</strong>\n" + logs.join("\n");
+    }
+  </script>
+</body>
+</html>
