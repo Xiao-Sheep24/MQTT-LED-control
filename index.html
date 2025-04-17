@@ -1,10 +1,24 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ESP32 LED 控制面板</title>
+  <title>ESP32 多色 LED 控制面板</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
-    button { margin: 5px; padding: 10px; font-size: 16px; }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    button {
+      margin: 5px;
+      padding: 20px 40px;
+      font-size: 20px;
+      border-radius: 8px;
+    }
+    #status {
+      font-size: 20px;
+      margin-bottom: 20px;
+      color: green;
+    }
     #log {
       margin-top: 20px;
       font-family: monospace;
@@ -13,11 +27,16 @@
       padding: 10px;
       max-height: 250px;
       overflow-y: auto;
+      background-color: #f9f9f9;
     }
   </style>
 </head>
 <body>
-  <h2>ESP32 多色 LED 控制</h2>
+
+  <!-- 燈狀態顯示區 -->
+  <div id="status">🔔 燈狀態：目前全部為 OFF</div>
+
+  <!-- 控制按鈕 -->
   <div>
     <button onclick="controlLED('red', 'on')">紅燈 ON</button>
     <button onclick="controlLED('red', 'off')">紅燈 OFF</button><br>
@@ -25,13 +44,15 @@
     <button onclick="controlLED('green', 'off')">綠燈 OFF</button><br>
     <button onclick="controlLED('yellow', 'on')">黃燈 ON</button>
     <button onclick="controlLED('yellow', 'off')">黃燈 OFF</button><br>
-    <button onclick="controlLED('orange', 'on')">橙燈 ON</button>
-    <button onclick="controlLED('orange', 'off')">橙燈 OFF</button>
+    <button onclick="controlLED('orange', 'on')">橘燈 ON</button>
+    <button onclick="controlLED('orange', 'off')">橘燈 OFF</button>
   </div>
 
+  <!-- MQTT 訊息區 -->
   <div id="log"><strong>📬 MQTT 訊息區</strong></div>
 
   <script>
+    // MQTT 客戶端連線
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
       clientId: 'web_' + Math.random().toString(16).substr(2, 8),
       username: 'mqttx_ce657d5d',
@@ -40,26 +61,72 @@
 
     const topic = 'home/yard/ESP32';
     const logDiv = document.getElementById('log');
+    const statusDiv = document.getElementById('status');
     const logs = [];
 
+    // LED 狀態儲存
+    const ledState = {
+      red: false,
+      green: false,
+      yellow: false,
+      orange: false
+    };
+
+    // LED 對應中文名稱
+    const ledNames = {
+      red: '紅燈',
+      green: '綠燈',
+      yellow: '黃燈',
+      orange: '橘燈'
+    };
+
+    // 連線成功時訂閱主題
     client.on('connect', () => {
       addLog("✅ 已連接到 MQTT Broker");
       client.subscribe(topic);
     });
 
+    // 收到訊息時處理
     client.on('message', (topic, payload) => {
-      addLog("📥 收到: " + payload.toString());
+      const msg = payload.toString();
+      addLog("📥 收到: " + msg);
+
+      try {
+        const json = JSON.parse(msg);
+        const { led, action } = json;
+        if (led && action) {
+          ledState[led] = action === 'on';
+          updateStatusDisplay();
+        }
+      } catch (e) {
+        console.warn("❌ 無法解析 JSON:", e);
+      }
     });
 
+    // 控制燈發送 MQTT 訊息
     function controlLED(color, action) {
       const msg = JSON.stringify({ led: color, action: action });
       client.publish(topic, msg, { qos: 1 });
       addLog("🚀 發送: " + msg);
     }
 
+    // 顯示目前亮著的燈（中文名稱）
+    function updateStatusDisplay() {
+      const onLeds = Object.entries(ledState)
+        .filter(([_, state]) => state)
+        .map(([key]) => ledNames[key]);
+
+      if (onLeds.length > 0) {
+        statusDiv.innerText = `💡 燈狀態：${onLeds.join("、")} 為 ON`;
+      } else {
+        statusDiv.innerText = `🔔 燈狀態：目前全部為 OFF`;
+      }
+    }
+
+    // 訊息清單（只保留最新 10 筆）
     function addLog(text) {
-      logs.unshift(text); // 插入最前面
-      if (logs.length > 10) logs.pop(); // 保留 10 筆
+      logs.unshift(text);
+      if (logs.length > 10) logs.pop();
       logDiv.innerHTML = "<strong>📬 MQTT 訊息區</strong>\n" + logs.join("\n");
     }
   </script>
