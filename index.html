@@ -8,11 +8,17 @@
       font-family: sans-serif;
       padding: 20px;
     }
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+      color: #333;
+    }
     button {
       margin: 5px;
       padding: 20px 40px;
       font-size: 20px;
       border-radius: 8px;
+      cursor: pointer;
     }
     #status {
       font-size: 20px;
@@ -33,6 +39,9 @@
 </head>
 <body>
 
+  <!-- 🔰 頁面標題 -->
+  <h1>ESP32 多色 LED 控制</h1>
+
   <!-- 燈狀態顯示區 -->
   <div id="status">🔔 燈狀態：目前全部為 OFF</div>
 
@@ -48,11 +57,11 @@
     <button onclick="controlLED('orange', 'off')">橘燈 OFF</button>
   </div>
 
-  <!-- MQTT 訊息區 -->
+  <!-- MQTT 訊息顯示區 -->
   <div id="log"><strong>📬 MQTT 訊息區</strong></div>
 
   <script>
-    // MQTT 客戶端連線
+    // 建立 MQTT 連線
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
       clientId: 'web_' + Math.random().toString(16).substr(2, 8),
       username: 'mqttx_ce657d5d',
@@ -64,7 +73,7 @@
     const statusDiv = document.getElementById('status');
     const logs = [];
 
-    // LED 狀態儲存
+    // 各燈目前狀態（true: 亮）
     const ledState = {
       red: false,
       green: false,
@@ -72,7 +81,7 @@
       orange: false
     };
 
-    // LED 對應中文名稱
+    // 中文名稱對應表
     const ledNames = {
       red: '紅燈',
       green: '綠燈',
@@ -80,13 +89,11 @@
       orange: '橘燈'
     };
 
-    // 連線成功時訂閱主題
     client.on('connect', () => {
       addLog("✅ 已連接到 MQTT Broker");
       client.subscribe(topic);
     });
 
-    // 收到訊息時處理
     client.on('message', (topic, payload) => {
       const msg = payload.toString();
       addLog("📥 收到: " + msg);
@@ -103,14 +110,12 @@
       }
     });
 
-    // 控制燈發送 MQTT 訊息
     function controlLED(color, action) {
       const msg = JSON.stringify({ led: color, action: action });
       client.publish(topic, msg, { qos: 1 });
       addLog("🚀 發送: " + msg);
     }
 
-    // 顯示目前亮著的燈（中文名稱）
     function updateStatusDisplay() {
       const onLeds = Object.entries(ledState)
         .filter(([_, state]) => state)
@@ -123,12 +128,12 @@
       }
     }
 
-    // 訊息清單（只保留最新 10 筆）
     function addLog(text) {
       logs.unshift(text);
       if (logs.length > 10) logs.pop();
       logDiv.innerHTML = "<strong>📬 MQTT 訊息區</strong>\n" + logs.join("\n");
     }
   </script>
+
 </body>
 </html>
