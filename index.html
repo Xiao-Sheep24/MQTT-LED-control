@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ESP32 多色 LED 控制面板</title>
+  <meta charset="UTF-8">
+  <title>ESP32 多色 LED 與溫濕度控制</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     body {
@@ -11,19 +12,27 @@
     h1 {
       font-size: 28px;
       margin-bottom: 10px;
-      color: #333;
+    }
+    .section-title {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: bold;
     }
     button {
       margin: 5px;
       padding: 20px 40px;
-      font-size: 20px;
+      font-size: 18px;
       border-radius: 8px;
       cursor: pointer;
     }
     #status {
       font-size: 20px;
-      margin-bottom: 20px;
+      margin: 10px 0;
       color: green;
+    }
+    #sensor {
+      font-size: 18px;
+      margin: 10px 0;
     }
     #log {
       margin-top: 20px;
@@ -39,101 +48,123 @@
 </head>
 <body>
 
-  <!-- 🔰 頁面標題 -->
-  <h1>ESP32 多色 LED 控制</h1>
+  <h1>ESP32 多色 LED 控制 + 溫濕度顯示</h1>
 
-  <!-- 燈狀態顯示區 -->
+  <!-- 燈狀態 -->
   <div id="status">🔔 燈狀態：目前全部為 OFF</div>
 
-  <!-- 控制按鈕 -->
+  <!-- 溫濕度狀態 -->
+  <div id="sensor">🌡️ 溫度 / 濕度 尚未接收</div>
+
+  <!-- 燈控制按鈕 -->
+  <div class="section-title">💡 燈光控制</div>
   <div>
+    <span>客廳</span><br>
     <button onclick="controlLED('red', 'on')">紅燈 ON</button>
     <button onclick="controlLED('red', 'off')">紅燈 OFF</button><br>
+
+    <span>廚房</span><br>
     <button onclick="controlLED('green', 'on')">綠燈 ON</button>
     <button onclick="controlLED('green', 'off')">綠燈 OFF</button><br>
+
+    <span>臥室</span><br>
     <button onclick="controlLED('yellow', 'on')">黃燈 ON</button>
     <button onclick="controlLED('yellow', 'off')">黃燈 OFF</button><br>
+
+    <span>浴室</span><br>
     <button onclick="controlLED('orange', 'on')">橘燈 ON</button>
     <button onclick="controlLED('orange', 'off')">橘燈 OFF</button>
   </div>
 
-  <!-- MQTT 訊息顯示區 -->
+  <!-- 訊息區 -->
+  <div class="section-title">📬 MQTT 訊息記錄</div>
   <div id="log"><strong>📬 MQTT 訊息區</strong></div>
 
   <script>
-    // 建立 MQTT 連線
+    // 初始化 MQTT 客戶端
     const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
       clientId: 'web_' + Math.random().toString(16).substr(2, 8),
       username: 'mqttx_ce657d5d',
       password: ''
     });
 
-    const topic = 'home/yard/ESP32';
+    // 主題
+    const topic_led = 'home/yard/ESP32';
+    const topic_dht = 'home/yard/DHT11';
+
+    // 顯示區
     const logDiv = document.getElementById('log');
     const statusDiv = document.getElementById('status');
+    const sensorDiv = document.getElementById('sensor');
+
+    // 記錄 LED 狀態與顯示名稱
+    const ledState = { red: false, green: false, yellow: false, orange: false };
+    const ledNames = { red: '紅燈', green: '綠燈', yellow: '黃燈', orange: '橘燈' };
+    const roomNames = { red: '客廳', green: '廚房', yellow: '臥室', orange: '浴室' };
+
     const logs = [];
 
-    // 各燈目前狀態（true: 亮）
-    const ledState = {
-      red: false,
-      green: false,
-      yellow: false,
-      orange: false
-    };
-
-    // 中文名稱對應表
-    const ledNames = {
-      red: '紅燈',
-      green: '綠燈',
-      yellow: '黃燈',
-      orange: '橘燈'
-    };
-
+    // 建立連線後訂閱主題
     client.on('connect', () => {
       addLog("✅ 已連接到 MQTT Broker");
-      client.subscribe(topic);
+      client.subscribe(topic_led);
+      client.subscribe(topic_dht);
     });
 
+    // 接收訊息
     client.on('message', (topic, payload) => {
       const msg = payload.toString();
-      addLog("📥 收到: " + msg);
+      addLog("📥 " + topic + ": " + msg);
 
       try {
         const json = JSON.parse(msg);
-        const { led, action } = json;
-        if (led && action) {
-          ledState[led] = action === 'on';
-          updateStatusDisplay();
+        // 處理 LED 控制
+        if (topic === topic_led) {
+          const { led, action } = json;
+          if (led && action) {
+            ledState[led] = action === 'on';
+            updateStatusDisplay();
+          }
+        }
+
+        // 處理 DHT11 資料
+        if (topic === topic_dht) {
+          const { temperature, humidity } = json;
+          if (temperature !== undefined && humidity !== undefined) {
+            sensorDiv.innerText = `🌡️ 溫度：${temperature.toFixed(1)}°C　💧 濕度：${humidity.toFixed(1)}%`;
+          }
         }
       } catch (e) {
         console.warn("❌ 無法解析 JSON:", e);
       }
     });
 
+    // 發送 LED 控制訊息
     function controlLED(color, action) {
       const msg = JSON.stringify({ led: color, action: action });
-      client.publish(topic, msg, { qos: 1 });
+      client.publish(topic_led, msg, { qos: 1 });
       addLog("🚀 發送: " + msg);
     }
 
+    // 顯示目前亮燈狀態
     function updateStatusDisplay() {
       const onLeds = Object.entries(ledState)
         .filter(([_, state]) => state)
-        .map(([key]) => ledNames[key]);
+        .map(([key]) => `${roomNames[key]}（${ledNames[key]}）`);
 
       if (onLeds.length > 0) {
-        statusDiv.innerText = `💡 燈狀態：${onLeds.join("、")} 為 ON`;
+        statusDiv.innerText = `💡 亮燈：${onLeds.join("、")}`;
       } else {
         statusDiv.innerText = `🔔 燈狀態：目前全部為 OFF`;
       }
     }
 
+    // 訊息顯示控制（最多 10 筆）
     function addLog(text) {
       logs.unshift(text);
       if (logs.length > 10) logs.pop();
       logDiv.innerHTML = "<strong>📬 MQTT 訊息區</strong>\n" + logs.join("\n");
     }
   </script>
-
 </body>
 </html>
