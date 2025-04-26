@@ -1,170 +1,128 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <title>ESP32 多色 LED 與溫濕度控制</title>
+  <meta charset="UTF-8" />
+  <title>ESP32 空氣品質監控</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
     body {
-      font-family: sans-serif;
+      font-family: "Noto Sans TC", sans-serif;
+      display: flex;
       padding: 20px;
+      background-color: #f0f8ff;
+    }
+    .main {
+      flex: 2;
+    }
+    .sidebar {
+      flex: 1;
+      margin-left: 40px;
+      padding: 15px;
+      border-left: 2px solid #ccc;
     }
     h1 {
+      color: #2c3e50;
       font-size: 28px;
-      margin-bottom: 10px;
     }
-    .section-title {
-      margin-top: 20px;
-      font-size: 22px;
+    .data-box {
+      margin-top: 15px;
+      font-size: 20px;
+    }
+    .quality {
       font-weight: bold;
     }
-    button {
-      margin: 5px;
-      padding: 20px 40px;
-      font-size: 18px;
-      border-radius: 8px;
-      cursor: pointer;
+    .good { color: green; }
+    .moderate { color: orange; }
+    .bad { color: red; }
+    #timestamp {
+      margin-top: 10px;
+      font-size: 14px;
+      color: #555;
     }
     #status {
-      font-size: 20px;
-      margin: 10px 0;
-      color: green;
-    }
-    #sensor {
       font-size: 18px;
-      margin: 10px 0;
+      margin-top: 10px;
     }
-    #log {
-      margin-top: 20px;
-      font-family: monospace;
-      white-space: pre-wrap;
-      border: 1px solid #ccc;
-      padding: 10px;
-      max-height: 250px;
-      overflow-y: auto;
-      background-color: #f9f9f9;
-    }
+    #status.ok { color: green; }
+    #status.lost { color: red; font-weight: bold; }
   </style>
 </head>
 <body>
-
-  <h1>ESP32 多色 LED 控制 + 溫濕度顯示</h1>
-
-  <!-- 燈狀態 -->
-  <div id="status">🔔 燈狀態：目前全部為 OFF</div>
-
-  <!-- 溫濕度狀態 -->
-  <div id="sensor">🌡️ 溫度 / 濕度 尚未接收</div>
-
-  <!-- 燈控制按鈕 -->
-  <div class="section-title">💡 燈光控制</div>
-  <div>
-    <span>客廳</span><br>
-    <button onclick="controlLED('red', 'on')">紅燈 ON</button>
-    <button onclick="controlLED('red', 'off')">紅燈 OFF</button><br>
-
-    <span>廚房</span><br>
-    <button onclick="controlLED('green', 'on')">綠燈 ON</button>
-    <button onclick="controlLED('green', 'off')">綠燈 OFF</button><br>
-
-    <span>臥室</span><br>
-    <button onclick="controlLED('yellow', 'on')">黃燈 ON</button>
-    <button onclick="controlLED('yellow', 'off')">黃燈 OFF</button><br>
-
-    <span>浴室</span><br>
-    <button onclick="controlLED('orange', 'on')">橘燈 ON</button>
-    <button onclick="controlLED('orange', 'off')">橘燈 OFF</button>
+  <div class="main">
+    <h1>ESP32 空氣品質監控頁面</h1>
+    <div class="data-box">🌡️ 溫度：<span id="temp">--</span> °C</div>
+    <div class="data-box">💧 濕度：<span id="humi">--</span> %RH</div>
+    <div class="data-box">🌫 MQ135 數值：<span id="mq135">--</span></div>
+    <div class="data-box">🟢 空氣品質：<span id="quality" class="quality">--</span></div>
+    <div id="timestamp">📅 最新時間：--</div>
+    <div id="status" class="ok">📡 狀態：資料持續更新中</div>
   </div>
 
-  <!-- 訊息區 -->
-  <div class="section-title">📬 MQTT 訊息記錄</div>
-  <div id="log"><strong>📬 MQTT 訊息區</strong></div>
+  <div class="sidebar">
+    <h3>空氣品質區間說明</h3>
+    <ul>
+      <li><span class="good">良好</span>：0 ~ 1200</li>
+      <li><span class="moderate">普通</span>：1201 ~ 2000</li>
+      <li><span class="bad">不佳</span>：2001 以上</li>
+    </ul>
+  </div>
 
   <script>
-    // 初始化 MQTT 客戶端
-    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+    const options = {
+      connectTimeout: 4000,
       clientId: 'web_' + Math.random().toString(16).substr(2, 8),
       username: 'mqttx_ce657d5d',
-      password: ''
-    });
+      password: '',
+    };
 
-    // 主題
-    const topic_led = 'home/yard/ESP32';
-    const topic_dht = 'home/yard/DHT11';
+    const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', options);
+    const topic = 'home/yard/DHT11';
+    let lastUpdateTime = Date.now();
 
-    // 顯示區
-    const logDiv = document.getElementById('log');
-    const statusDiv = document.getElementById('status');
-    const sensorDiv = document.getElementById('sensor');
-
-    // 記錄 LED 狀態與顯示名稱
-    const ledState = { red: false, green: false, yellow: false, orange: false };
-    const ledNames = { red: '紅燈', green: '綠燈', yellow: '黃燈', orange: '橘燈' };
-    const roomNames = { red: '客廳', green: '廚房', yellow: '臥室', orange: '浴室' };
-
-    const logs = [];
-
-    // 建立連線後訂閱主題
     client.on('connect', () => {
-      addLog("✅ 已連接到 MQTT Broker");
-      client.subscribe(topic_led);
-      client.subscribe(topic_dht);
+      console.log('✅ 已連接 MQTT');
+      client.subscribe(topic, { qos: 1 });
     });
 
-    // 接收訊息
     client.on('message', (topic, payload) => {
-      const msg = payload.toString();
-      addLog("📥 " + topic + ": " + msg);
-
       try {
-        const json = JSON.parse(msg);
-        // 處理 LED 控制
-        if (topic === topic_led) {
-          const { led, action } = json;
-          if (led && action) {
-            ledState[led] = action === 'on';
-            updateStatusDisplay();
-          }
+        const data = JSON.parse(payload.toString());
+        const temp = data.temperature;
+        const humi = data.humidity;
+        const mq = data.mq135_raw;
+        lastUpdateTime = Date.now();
+
+        document.getElementById("temp").innerText = temp.toFixed(1);
+        document.getElementById("humi").innerText = humi.toFixed(1);
+        document.getElementById("mq135").innerText = mq;
+
+        const qualityText = document.getElementById("quality");
+        if (mq <= 1200) {
+          qualityText.innerText = "良好";
+          qualityText.className = "quality good";
+        } else if (mq <= 2000) {
+          qualityText.innerText = "普通";
+          qualityText.className = "quality moderate";
+        } else {
+          qualityText.innerText = "不佳";
+          qualityText.className = "quality bad";
         }
 
-        // 處理 DHT11 資料
-        if (topic === topic_dht) {
-          const { temperature, humidity } = json;
-          if (temperature !== undefined && humidity !== undefined) {
-            sensorDiv.innerText = `🌡️ 溫度：${temperature.toFixed(1)}°C　💧 濕度：${humidity.toFixed(1)}%`;
-          }
-        }
+        document.getElementById("timestamp").innerText = "📅 最新時間：" + new Date().toLocaleString();
+        document.getElementById("status").innerText = "📡 狀態：資料持續更新中";
+        document.getElementById("status").className = "ok";
       } catch (e) {
-        console.warn("❌ 無法解析 JSON:", e);
+        console.error("❌ 解析錯誤", e);
       }
     });
 
-    // 發送 LED 控制訊息
-    function controlLED(color, action) {
-      const msg = JSON.stringify({ led: color, action: action });
-      client.publish(topic_led, msg, { qos: 1 });
-      addLog("🚀 發送: " + msg);
-    }
-
-    // 顯示目前亮燈狀態
-    function updateStatusDisplay() {
-      const onLeds = Object.entries(ledState)
-        .filter(([_, state]) => state)
-        .map(([key]) => `${roomNames[key]}（${ledNames[key]}）`);
-
-      if (onLeds.length > 0) {
-        statusDiv.innerText = `💡 亮燈：${onLeds.join("、")}`;
-      } else {
-        statusDiv.innerText = `🔔 燈狀態：目前全部為 OFF`;
+    setInterval(() => {
+      if (Date.now() - lastUpdateTime > 10000) {
+        document.getElementById("status").innerText = "⚠️ 狀態：資料已斷線";
+        document.getElementById("status").className = "lost";
       }
-    }
-
-    // 訊息顯示控制（最多 10 筆）
-    function addLog(text) {
-      logs.unshift(text);
-      if (logs.length > 10) logs.pop();
-      logDiv.innerHTML = "<strong>📬 MQTT 訊息區</strong>\n" + logs.join("\n");
-    }
+    }, 3000);
   </script>
 </body>
 </html>
